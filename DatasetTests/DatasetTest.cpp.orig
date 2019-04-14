@@ -1,0 +1,152 @@
+/*
+ * DatasetTest.cpp
+ *
+ *  Created on: 4 Mar 2017
+ *      Author: luca
+ */
+
+#include <iostream>
+#include <queue>
+
+#include "opencv2/highgui/highgui.hpp"
+#include "DatasetTest.hpp"
+#include "Utilities/Utility.hpp"
+#include "Utilities/FileSystem.hpp"
+
+namespace cc{
+	void DatasetTest::Topk(std::vector<std::string> &topkTest , std::vector<float> &topkDistance,
+					const std::vector<std::string> files, const cv::Mat1f &queryCode, const cv::Mat1f &codes,
+					size_t k, const std::string ext){
+		k = k <= (size_t) codes.rows ? k : (size_t) codes.rows;
+		topkTest.clear();
+		topkDistance.clear();
+		topkTest.resize(k,std::string());
+		topkDistance.resize(k,0);
+
+		//---------------------------EUCLIDEAN DISTANCES---------------------------
+		std::vector<double> distances(codes.rows,0);
+		for(int i=0;i<codes.rows;i++){
+			if(countNonZero(codes.row(i)))
+				distances[i] = norm(queryCode,codes.row(i),cv::NORM_L2);
+			else{
+				//if all values are 0, then the descriptor was empty (look Encoder::encode)
+				distances[i] = std::numeric_limits<float>::max();
+			}
+			//std::cout<<"distances["<<i<<"]= "<<distances[i]<<std::endl;
+		}
+		//---------------------------TOP-K---------------------------
+		std::priority_queue<std::pair<double, size_t>> queue;
+		for (size_t i = 0; i < distances.size(); i++) {
+			if(queue.size()<k)
+				queue.push(std::pair<double, size_t>(distances[i], i));
+			else if(queue.top().first>distances[i]){//the top element is the one with the biggest distance
+					queue.pop();
+					queue.push(std::pair<double, size_t>(distances[i], i));
+			}
+		}
+		for(size_t i=0;i<k;i++){ //don't use queue.size() !
+			topkTest[k-1-i] = files[queue.top().second];
+			topkDistance[k-1-i] = queue.top().first;
+			queue.pop();
+		}
+	}
+
+	void DatasetTest::queryImage(const cv::Mat1f &codes, const std::string &dataDir, const std::string &queryImg, const std::string &ext){
+		std::vector<std::string> files;
+		cc::getAll(dataDir, ext, files);
+		cv::Mat1f queryCode;
+		for(size_t i=0 ; i<files.size() ; i++){
+			if(files[i] == dataDir+"/"+queryImg){
+				queryCode = codes.row(i);
+				break;
+			}
+			if(i==files.size()-1){
+				std::cerr<<"Didn't find "<<dataDir+"/"+queryImg<<std::endl;
+				return;
+			}
+		}
+		size_t k = 10; // number of indices we need
+		std::vector<std::string> topkTest(k);
+		std::vector<float> topkDistance(k);
+		Topk(topkTest, topkDistance, files, queryCode, codes, k, ext);
+		for (size_t i=0; i<topkTest.size(); i++){
+			std::cout<<"Opening "<<topkTest[i]<<std::endl;
+			cv::Mat image = ccImRead(topkTest[i]);
+			cv::namedWindow( topkTest[i], cv::WINDOW_AUTOSIZE );// Create a window for display.
+			cv::imshow( topkTest[i], image );                   // Show our image inside it.
+		}
+		std::cout<<"waiting for entering key..."<<std::endl;
+		cv::waitKey(0);
+		std::cout<<"Gotcha!"<<std::endl;
+		cv::destroyAllWindows();
+		std::cout<<"DESTROYED!"<<std::endl;
+	}
+
+	void DatasetTest::evaluateThreshold(Rates &rates, const float threshold, const cv::Mat1f &codes, const std::string &dataDir, const std::string &gtDir){
+		std::vector<queryResults> queries;
+		std::vector<std::string> dataFiles; //dataset files
+		//get all the true positives for the given dataset
+		getQueriesResults(queries, dataDir, gtDir);
+		//get the list of all dataset files
+		cc::getAll(dataDir, ".jpg", dataFiles);
+		for(size_t i=0; i<queries.size(); i++){
+			std::string query = queries[i].query;
+			//check if query exists in the dataset
+			cv::Mat1f queryCode;
+			for(size_t j=0; j<dataFiles.size(); j++){
+<<<<<<< HEAD
+				//if query is equal to the given dataset file
+=======
+>>>>>>> ParallelNotReduce
+				if(! dataFiles[j].compare(query)){
+					queryCode = codes.row(j);
+					break;
+				}
+			}
+			//error: we didn't find the query file
+			if(queryCode.empty())
+				throw std::runtime_error("Query "+query+" not found");
+			//find the most similar image in the dataset (except the query itself)
+			double minDist = cv::norm(queryCode, codes.row(0), cv::NORM_L2);
+			size_t minIndex = 0;
+			for(int j=1; j<codes.rows; j++){
+<<<<<<< HEAD
+				//0 codes are for matrices with 0 descriptors, skip it
+				if(cv::countNonZero(codes.row(j))<1)
+					continue;
+				double d = cv::norm(queryCode, codes.row(j), cv::NORM_L2);
+=======
+				double d = cv::norm(queryCode, codes.row(0), cv::NORM_L2);
+>>>>>>> ParallelNotReduce
+				//if d=0 then it's the query itself
+				if(d != 0 && d<minDist){
+					minDist = d;
+					minIndex = j;
+				}
+			}
+			std::string mostSimilar = dataFiles[minIndex];
+			std::vector<std::string> tps = queries[i].truePositives;
+			//if the most similar image belongs to the set of true positives
+			if(std::find(tps.begin(), tps.end(), mostSimilar) != tps.end()){
+				//true positive
+				if(minDist <= threshold)
+					rates.tp++;
+				//false negative
+				else
+					rates.fn++;
+			}
+			else{
+				//false positive
+				if(minDist <= threshold)
+					rates.fp++;
+				//true negative
+				else
+					rates.tn++;
+			}
+		}
+		rates.queries = queries.size();
+	}
+
+	DatasetTest::~DatasetTest(){}
+
+}
